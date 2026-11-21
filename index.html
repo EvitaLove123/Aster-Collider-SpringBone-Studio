@@ -89,7 +89,7 @@ function makeGlb(json,chunks){
  for(const c of chunks)total+=8+c.bytes.length+(4-c.bytes.length%4)%4;
  const out=new ArrayBuffer(total),dv=new DataView(out);let o=0;dv.setUint32(o,0x46546c67,true);dv.setUint32(o+4,2,true);dv.setUint32(o+8,total,true);o=12;
  const write=(bytes,type,pad)=>{const n=bytes.length+pad;dv.setUint32(o,n,true);dv.setUint32(o+4,type,true);new Uint8Array(out,o+8,bytes.length).set(bytes);for(let i=0;i<pad;i++)new Uint8Array(out)[o+8+bytes.length+i]=type===0x4e4f534a?0x20:0;o+=8+n};
- write(jb,jp,0x4e4f534a);for(const c of chunks)write(c.bytes,(4-c.bytes.length%4)%4,c.type);return out
+ write(jb,0x4e4f534a,jp);for(const c of chunks)write(c.bytes,c.type,(4-c.bytes.length%4)%4);return out
 }
 function exportPhysicsVrm(){
  if(!vrm||!sourceJson||!sourceChunks)throw new Error('Import a valid VRM 0.x or VRM 1.0 file first.');
@@ -113,11 +113,11 @@ function exportPhysicsVrm(){
   const sec=vrmExt.secondaryAnimation=vrmExt.secondaryAnimation||{boneGroups:[],colliderGroups:[]};
   sec.colliderGroups=sec.colliderGroups||[];sec.boneGroups=sec.boneGroups||[];
   const cMap=new Map();
-  colliderGroups.forEach((g,gi)=>{const cs=validColliders.filter(c=>c.group===gi&&getNode(c.bone)!==null).map(c=>({node:getNode(c.bone),radius:c.radius, offset:{x:c.offset.x,y:c.offset.y,z:c.offset.z}}));cMap.set(gi,sec.colliderGroups.length);sec.colliderGroups.push({colliders:cs})});
-  springs.forEach(s=>{const ni=getNode(s.root);if(ni===null)return;sec.boneGroups.push({comment:s.name,stiffiness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag,hitRadius:s.hitRadius,bones:[ni],colliderGroups:s.group>=0&&cMap.has(s.group)?[cMap.get(s.group)]:[]})});
+  colliderGroups.forEach((g,gi)=>{const boneGroups=new Map();validColliders.filter(c=>c.group===gi).forEach(c=>{const ni=getNode(c.bone);if(ni===null)return;if(!boneGroups.has(ni))boneGroups.set(ni,[]);boneGroups.get(ni).push({offset:{x:c.offset.x,y:c.offset.y,z:c.offset.z},radius:c.radius})});const indices=[];boneGroups.forEach((items,node)=>{indices.push(sec.colliderGroups.length);sec.colliderGroups.push({node,colliders:items})});cMap.set(gi,indices)});
+  springs.forEach(s=>{const ni=getNode(s.root);if(ni===null)return;const cg=s.group>=0&&cMap.has(s.group)?cMap.get(s.group):[];sec.boneGroups.push({comment:s.name,stiffiness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag,hitRadius:s.hitRadius,bones:[ni],colliderGroups:cg})});
  }
  const blob=makeGlb(json,sourceChunks.chunks),url=URL.createObjectURL(new Blob([blob],{type:'model/gltf-binary'})),a=document.createElement('a');a.href=url;a.download=sourceName.replace(/\\.(vrm|glb)$/i,'')+'_physics.vrm';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
- msg('VRM downloaded with '+(isV1?'VRMC_springBone':'VRM secondaryAnimation')+' data. Re-import the exported file to verify it.');
+ msg('Downloaded a VRM with physics extension data. Import it again in a compatible VRM viewer to verify.');
 }
 $('exportVrm').onclick=()=>{try{exportPhysicsVrm()}catch(err){console.error(err);msg('Export failed: '+err.message)}};
 
