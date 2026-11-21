@@ -41,7 +41,7 @@ scene.add(new THREE.HemisphereLight(0xffffff,0x9aa8bf,2));const key=new THREE.Di
 const grid=new THREE.GridHelper(4,20,0xc5cfdd,0xe0e6ef);scene.add(grid);
 let vrm=null,model=null,sourceBuffer=null,sourceName='avatar.vrm',sourceJson=null,sourceChunks=null,selectedCollider=-1,selectedGroup=-1,selectedSpring=-1,playing=false,clock=new THREE.Clock(),elapsed=0;
 let colliderGroups=[],colliders=[],springs=[],boneMap=new Map(),originalRotations=new Map(),posePlaying=false,physics=false;
-const helperGroup=new THREE.Group();scene.add(helperGroup);
+const helperGroup=new THREE.Group();helperGroup.visible=false;scene.add(helperGroup);
 function resize(){const r=$('viewport').getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix()}new ResizeObserver(resize).observe($('viewport'));resize();
 function msg(t){$('status').textContent=t}
 function refreshLists(){
@@ -74,7 +74,7 @@ function resetPose(){if(!model)return;for(const [n,q] of originalRotations){let 
 document.querySelectorAll('[data-pose]').forEach(b=>b.onclick=()=>{if(!model)return;resetPose();const type=b.dataset.pose;for(const [n,bone] of boneMap){if(/upperarm|arm/i.test(n)){if(type==='T')bone.rotation.z=n.endsWith('_R')?-.0:.0;if(type==='A')bone.rotation.z=n.toLowerCase().includes('right')?-.55:.55}}});
 $('applyRotation').onclick=()=>{let b=boneMap.get($('poseBone').value);if(!b)return;b.rotation.set(+$('rx').value*Math.PI/180,+$('ry').value*Math.PI/180,+$('rz').value*Math.PI/180);drawColliders()};
 $('playPose').onclick=()=>{posePlaying=true;msg('Pose preview active.')};$('stopPose').onclick=()=>{posePlaying=false;resetPose()};
-$('togglePhysics').onclick=()=>{physics=!physics;$('togglePhysics').textContent=physics?'Stop Physics Preview':'Start Physics Preview';msg(physics?'Procedural physics preview running.':'Physics preview stopped.')};
+$('togglePhysics').onclick=()=>{physics=!physics;$('togglePhysics').textContent=physics?'Hide Collider Preview':'Show Collider Preview';helperGroup.visible=physics;msg(physics?'Collider gizmo preview enabled. This is a placement preview, not a live Spring Bone simulation.':'Collider gizmo preview hidden.')};
 $('motionPlay').onclick=()=>playing=true;$('motionPause').onclick=()=>playing=false;$('motionStop').onclick=()=>{playing=false;elapsed=0;$('timeline').value=0};
 $('timeline').oninput=e=>{elapsed=+e.target.value;$('timeLabel').textContent=elapsed.toFixed(1)+'s'};
 $('resetView').onclick=()=>{camera.position.set(0,1.35,3.6);controls.target.set(0,1,0);controls.update()};
@@ -94,7 +94,7 @@ function makeGlb(json,chunks){
 function exportPhysicsVrm(){
  if(!vrm||!sourceJson||!sourceChunks)throw new Error('Import a valid VRM 0.x or VRM 1.0 file first.');
  const json=JSON.parse(JSON.stringify(sourceJson)),nodes=json.nodes||[],nodeIndex=new Map(nodes.map((n,i)=>[n.name,i]));
- const getNode=name=>nodeIndex.has(name)?nodeIndex.get(name):null;
+ const getNode=name=>nodeIndex.has(name)?nodeIndex.get(name):null;\n const chainNodes=rootName=>{const root=boneMap.get(rootName);if(!root)return [];const out=[];root.traverse(o=>{if(o.isBone&&nodeIndex.has(o.name))out.push(nodeIndex.get(o.name))});return out};
  const validColliders=colliders.filter(c=>c.bone&&getNode(c.bone)!==null&&c.radius>0);
  const groups=colliderGroups.map(g=>g.name),groupIndex=i=>i>=0&&i<groups.length?i:null;
  const isV1=!!json.extensions?.VRMC_vrm;
@@ -106,7 +106,7 @@ function exportPhysicsVrm(){
   validColliders.forEach((c)=>{const ni=getNode(c.bone);const idx=ext.colliders.length;ext.colliders.push({node:ni,shape:{sphere:{offset:{x:c.offset.x,y:c.offset.y,z:c.offset.z},radius:c.radius}}});colliderMap.set(colliders.indexOf(c),idx)});
   const groupMap=new Map();
   colliderGroups.forEach((g,gi)=>{const indices=validColliders.map((c)=>({c,i:colliders.indexOf(c)})).filter(x=>x.c.group===gi&&colliderMap.has(x.i)).map(x=>colliderMap.get(x.i));groupMap.set(gi,ext.colliderGroups.length);ext.colliderGroups.push({name:g.name, colliders:indices})});
-  springs.forEach(s=>{const ni=getNode(s.root);if(ni===null)return;const cgi=s.group>=0&&groupMap.has(s.group)?[groupMap.get(s.group)]:[];ext.springs.push({name:s.name,joints:[{node:ni,hitRadius:s.hitRadius,stiffness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag}],colliderGroups:cgi})});
+  springs.forEach(s=>{const chain=chainNodes(s.root);if(!chain.length)return;const cgi=s.group>=0&&groupMap.has(s.group)?[groupMap.get(s.group)]:[];ext.springs.push({name:s.name,joints:chain.map(ni=>({node:ni,hitRadius:s.hitRadius,stiffness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag})),colliderGroups:cgi})});
   json.extensions.VRMC_springBone=ext;json.extensionsUsed=json.extensionsUsed||[];if(!json.extensionsUsed.includes('VRMC_springBone'))json.extensionsUsed.push('VRMC_springBone');
  }else{
   const vrmExt=json.extensions?.VRM;if(!vrmExt)throw new Error('VRM 0.x extension not found.');
@@ -114,9 +114,9 @@ function exportPhysicsVrm(){
   sec.colliderGroups=sec.colliderGroups||[];sec.boneGroups=sec.boneGroups||[];
   const cMap=new Map();
   colliderGroups.forEach((g,gi)=>{const boneGroups=new Map();validColliders.filter(c=>c.group===gi).forEach(c=>{const ni=getNode(c.bone);if(ni===null)return;if(!boneGroups.has(ni))boneGroups.set(ni,[]);boneGroups.get(ni).push({offset:{x:c.offset.x,y:c.offset.y,z:c.offset.z},radius:c.radius})});const indices=[];boneGroups.forEach((items,node)=>{indices.push(sec.colliderGroups.length);sec.colliderGroups.push({node,colliders:items})});cMap.set(gi,indices)});
-  springs.forEach(s=>{const ni=getNode(s.root);if(ni===null)return;const cg=s.group>=0&&cMap.has(s.group)?cMap.get(s.group):[];sec.boneGroups.push({comment:s.name,stiffiness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag,hitRadius:s.hitRadius,bones:[ni],colliderGroups:cg})});
+  springs.forEach(s=>{const chain=chainNodes(s.root);if(!chain.length)return;const cg=s.group>=0&&cMap.has(s.group)?cMap.get(s.group):[];sec.boneGroups.push({comment:s.name,stiffiness:s.stiffness,gravityPower:s.gravity,gravityDir:{x:0,y:-1,z:0},dragForce:s.drag,hitRadius:s.hitRadius,bones:chain,colliderGroups:cg})});
  }
- const blob=makeGlb(json,sourceChunks.chunks),url=URL.createObjectURL(new Blob([blob],{type:'model/gltf-binary'})),a=document.createElement('a');a.href=url;a.download=sourceName.replace(/\\.(vrm|glb)$/i,'')+'_physics.vrm';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ const blob=makeGlb(json,sourceChunks.chunks),url=URL.createObjectURL(new Blob([blob],{type:'model/gltf-binary'})),a=document.createElement('a');a.href=url;a.download=sourceName.replace(/\.(vrm|glb)$/i,'')+'_physics.vrm';a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
  msg('Downloaded a VRM with physics extension data. Import it again in a compatible VRM viewer to verify.');
 }
 $('exportVrm').onclick=()=>{try{exportPhysicsVrm()}catch(err){console.error(err);msg('Export failed: '+err.message)}};
