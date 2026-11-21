@@ -28,11 +28,14 @@
 </section>
 <section class="panel" style="grid-column:1/-1"><div class="row" style="justify-content:space-between"><div><b>Project Data</b><div class="notice">Local workspace · nothing is uploaded</div></div><div class="row"><button id="saveProject">Save Settings JSON</button><button id="exportVrm" class="primary">Download VRM</button></div></div><p class="notice">Current build: model viewing, bone discovery, collider/group editing, spring-chain settings, pose transforms and procedural preview UI. VRM physics serialization/export is not yet implemented; the export button remains disabled rather than producing a misleading file.</p></section>
 </main>
+<script type="importmap">
+{"imports":{"three":"https://esm.sh/three@0.160.0","three/addons/":"https://esm.sh/three@0.160.0/examples/jsm/","@pixiv/three-vrm":"https://esm.sh/@pixiv/three-vrm@3.4.2?external=three"}}
+</script>
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 const $=id=>document.getElementById(id), scene=new THREE.Scene();scene.background=new THREE.Color(0xf0f4fa);
 const camera=new THREE.PerspectiveCamera(35,1,.1,100);camera.position.set(0,1.35,3.6);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,1.8));renderer.outputColorSpace=THREE.SRGBColorSpace;$('viewport').appendChild(renderer.domElement);
@@ -57,7 +60,7 @@ function syncCollider(){let c=selected();if(!c)return;['ox','oy','oz','radius'].
 function updateCollider(){let c=selected();if(!c)return;c.offset.set(+$('ox').value||0,+$('oy').value||0,+$('oz').value||0);c.radius=Math.max(.001,+$('radius').value||.05);c.bone=$('colliderBone').value;c.group=+$('colliderGroupSelect').value;drawColliders()}
 function drawColliders(){helperGroup.clear();if(model)model.updateMatrixWorld(true);colliders.forEach((c,i)=>{const mesh=new THREE.Mesh(new THREE.SphereGeometry(c.radius,16,12),new THREE.MeshBasicMaterial({color:i===selectedCollider?0x4778e8:0x52a6a0,wireframe:true}));let p=new THREE.Vector3(c.offset.x,c.offset.y,c.offset.z);if(c.bone&&boneMap.has(c.bone))boneMap.get(c.bone).localToWorld(p);mesh.position.copy(p);helperGroup.add(mesh)})}
 function populateBones(){let names=[...boneMap.keys()].sort();for(const id of ['colliderBone','springBone','poseBone'])$(id).innerHTML='<option value="">Select bone</option>'+names.map(n=>'<option>'+esc(n)+'</option>').join('')}
-$('file').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;msg('Loading '+f.name+'…');try{sourceName=f.name;sourceBuffer=await f.arrayBuffer();const url=URL.createObjectURL(new Blob([sourceBuffer]));const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));const gltf=await loader.loadAsync(url);if(model)scene.remove(model);vrm=gltf.userData.vrm||null;try{sourceChunks=parseGlb(sourceBuffer);sourceJson=sourceChunks.json}catch(parseErr){sourceChunks=null;sourceJson=null}model=gltf.scene;scene.add(model);boneMap.clear();originalRotations.clear();model.traverse(o=>{if(o.isBone){boneMap.set(o.name,o);originalRotations.set(o.name,o.quaternion.clone())}});populateBones();if(vrm){VRMUtils.rotateVRM0(vrm);$('modelStatus').textContent='Loaded VRM · '+boneMap.size+' bones';$('exportVrm').disabled=false}else {$('modelStatus').textContent='Loaded GLB · '+boneMap.size+' bones (VRM data unavailable)';$('exportVrm').disabled=true};drawColliders();msg('Model loaded locally. Found '+boneMap.size+' bones.');URL.revokeObjectURL(url)}catch(err){console.error(err);msg('Could not load model: '+err.message)}})
+$('file').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;msg('Loading '+f.name+'…');try{sourceName=f.name;sourceBuffer=await f.arrayBuffer();const url=URL.createObjectURL(new Blob([sourceBuffer]));const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));const gltf=await loader.loadAsync(url);if(model)scene.remove(model);vrm=gltf.userData.vrm||null;try{sourceChunks=parseGlb(sourceBuffer);sourceJson=sourceChunks.json}catch(parseErr){sourceChunks=null;sourceJson=null}model=gltf.scene;scene.add(model);boneMap.clear();originalRotations.clear();model.traverse(o=>{if(o.isBone){boneMap.set(o.name,o);originalRotations.set(o.name,o.quaternion.clone())}});populateBones();if(vrm){VRMUtils.rotateVRM0(vrm);$('modelStatus').textContent='Loaded VRM · '+boneMap.size+' bones';$('exportVrm').disabled=false}else {$('modelStatus').textContent='Loaded GLB · '+boneMap.size+' bones (VRM data unavailable)';$('exportVrm').disabled=true};drawColliders();msg('Model loaded locally. Found '+boneMap.size+' bones.');URL.revokeObjectURL(url)}catch(err){console.error(err);$('modelStatus').textContent='Load failed · '+err.message;msg('Could not load model: '+err.message)}})
 $('addColliderGroup').onclick=()=>{colliderGroups.push({name:'ColliderGroup_'+(colliderGroups.length+1),colliderIndices:[]});selectedGroup=colliderGroups.length-1;refreshLists();msg('Collider Group created.')};
 $('deleteColliderGroup').onclick=()=>{if(selectedGroup<0)return;colliderGroups.splice(selectedGroup,1);colliders.forEach(c=>{if(c.group===selectedGroup)c.group=-1;else if(c.group>selectedGroup)c.group--});selectedGroup=-1;refreshLists()};
 $('addCollider').onclick=()=>{colliders.push({bone:'',offset:new THREE.Vector3(),radius:.05,group:selectedGroup});selectedCollider=colliders.length-1;refreshLists();syncCollider();drawColliders()};
@@ -94,7 +97,8 @@ function makeGlb(json,chunks){
 function exportPhysicsVrm(){
  if(!vrm||!sourceJson||!sourceChunks)throw new Error('Import a valid VRM 0.x or VRM 1.0 file first.');
  const json=JSON.parse(JSON.stringify(sourceJson)),nodes=json.nodes||[],nodeIndex=new Map(nodes.map((n,i)=>[n.name,i]));
- const getNode=name=>nodeIndex.has(name)?nodeIndex.get(name):null;\n const chainNodes=rootName=>{const root=boneMap.get(rootName);if(!root)return [];const out=[];root.traverse(o=>{if(o.isBone&&nodeIndex.has(o.name))out.push(nodeIndex.get(o.name))});return out};
+ const getNode=name=>nodeIndex.has(name)?nodeIndex.get(name):null;
+ const chainNodes=rootName=>{const root=boneMap.get(rootName);if(!root)return [];const out=[];root.traverse(o=>{if(o.isBone&&nodeIndex.has(o.name))out.push(nodeIndex.get(o.name))});return out};
  const validColliders=colliders.filter(c=>c.bone&&getNode(c.bone)!==null&&c.radius>0);
  const groups=colliderGroups.map(g=>g.name),groupIndex=i=>i>=0&&i<groups.length?i:null;
  const isV1=!!json.extensions?.VRMC_vrm;
